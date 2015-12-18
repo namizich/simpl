@@ -1,190 +1,57 @@
-$(document).ready(function() {
-    var file_input = $('#file_input'),
-        file_list = $('#file_list'),
-        submit_btn = $('#submit_btn'),
+(function () {
+    'use strict';
+    var bars = document.getElementById('bars'),
+        uploaders = [],
+        upload,
+        chooseFile;
 
-    file_input.on('change', onFilesSelected);
+    upload = function (blobOrFile) {
+        var progress = document.createElement('div'),
+            meter = document.createElement('span'),
+            xhr;
+        progress.classList.add('progress');
+        meter.classList.add('meter');
+        bars.appendChild(progress);
+        progress.appendChild(meter);
 
-    /**
-     * Loops through the selected files, displays their file name and size
-     * in the file list, and enables the submit button for uploading.
-     */
-    function onFileSelected(e) {
-        var files = e.target.files;
-
-        for (var i = 0; i < files.length; i++) {
-            file_list.append('<li>' + files[i].name + '(' + files[i].size.formatBytes() + ')</li>');
-        }
-
-        file_list.show();
-        submit_btn.attr('disabled', false);
-    }
-});
-
-
-/**
- * Utility method to format bytes into the most logical magnitude (KB, MB,
- * or GB).
- */
-Number.prototype.formatBytes = function() {
-    var units = ['B', 'KB', 'MB', 'GB', 'TB'],
-        bytes = this,
-        i;
-
-    for (i = 0; bytes >= 1024 && i < 4; i++) {
-        bytes /= 1024;
-    }
-
-    return bytes.toFixed(2) + units[i];
-}
-
-function ChunkedUploader(file, options) {
-    if (!this instanceof ChunkedUploader) {
-        return new ChunkedUploader(file, options);
-    }
-
-    this.file = file;
-
-    this.options = $.extend({
-        url: '/upload'
-    }, options);
-
-    this.file_size = this.file.size;
-    this.chunk_size = (1024 * 100); // 100KB
-    this.range_start = 0;
-    this.range_end = this.chunk_size;
-
-    if ('mozSlice' in this.file) {
-        this.slice_method = 'mozSlice';
-    }
-    else if ('webkitSlice' in this.file) {
-        this.slice_method = 'webkitSlice';
-    }
-    else {
-        this.slice_method = 'slice';
-    }
-
-    this.upload_request = new XMLHttpRequest();
-    this.upload_request.onload = this._onChunkComplete;
-}
-
-ChunkedUploader.prototype = {
-
-// Internal Methods __________________________________________________
-
-    _upload: function() {
-        var self = this,
-            chunk;
-
-        // Slight timeout needed here (File read / AJAX readystate conflict?)
-        setTimeout(function() {
-            // Prevent range overflow
-            if (self.range_end > self.file_size) {
-                self.range_end = self.file_size;
+        xhr = new XMLHttpRequest();
+        xhr.open('POST', '/echo/json/', true);
+        xhr.upload.onprogress = function (e) {
+            if (e.lengthComputable) {
+                meter.value = Math.round((e.loaded / e.total) * 100);
+                meter.textContent = parseFloat(meter.value) + '%';
+                meter.style.width = meter.textContent;
             }
+            if (meter.textContent === '100%') progress.classList.add('success');
 
-            chunk = self.file[self.slice_method](self.range_start, self.range_end);
 
-            self.upload_request.open('PUT', self.options.url, true);
-            self.upload_request.overrideMimeType('application/octet-stream');
-
-            if (self.range_start !== 0) {
-                self.upload_request.setRequestHeader('Content-Range', 'bytes ' + self.range_start + '-' + self.range_end + '/' + self.file_size);
+        };
+        xhr.onloadend = function (e) {
+            uploaders.pop();
+            if (!uploaders.length) {
+                bars.appendChild(document.createTextNode(' All Done! '));
             }
+        };
+        uploaders.push(xhr);
+        xhr.send(blobOrFile);
+    };
+    chooseFile = document.getElementById('afile');
+    chooseFile.addEventListener('change', function (e) {
+        var self = e.currentTarget,
+            blob = self.files[0],
+            BYTES_PER_CHUNK, SIZE, NUM_CHUNKS, start, end;
 
-            self.upload_request.send(chunk);
-
-            // TODO
-            // From the looks of things, jQuery expects a string or a map
-            // to be assigned to the "data" option. We'll have to use
-            // XMLHttpRequest object directly for now...
-            /*$.ajax(self.options.url, {
-                data: chunk,
-                type: 'PUT',
-                mimeType: 'application/octet-stream',
-                headers: (self.range_start !== 0) ? {
-                    'Content-Range': ('bytes ' + self.range_start + '-' + self.range_end + '/' + self.file_size)
-                } : {},
-                success: self._onChunkComplete
-            });*/
-        }, 20);
-    },
-
-// Event Handlers ____________________________________________________
-
-    _onChunkComplete: function() {
-        // If the end range is already the same size as our file, we
-        // can assume that our last chunk has been processed and exit
-        // out of the function.
-        if (this.range_end === this.file_size) {
-            this._onUploadComplete();
-            return;
+        BYTES_PER_CHUNK = parseInt(document.getElementById('numChunks').value, 10);
+        SIZE = blob.size;
+        NUM_CHUNKS = Math.max(Math.ceil(SIZE / BYTES_PER_CHUNK), 1);
+        bars.innerHTML = '';
+        bars.innerHTML = '<p>Sending <b>' + NUM_CHUNKS + '</b> chunks:</p>';
+        start = 0;
+        end = BYTES_PER_CHUNK;
+        while (start < SIZE) {
+            upload(blob.slice(start, end));
+            start = end;
+            end = start + BYTES_PER_CHUNK;
         }
-
-        // Update our ranges
-        this.range_start = this.range_end;
-        this.range_end = this.range_start + this.chunk_size;
-
-        // Continue as long as we aren't paused
-        if (!this.is_paused) {
-            this._upload();
-        }
-    },
-
-// Public Methods ____________________________________________________
-
-    start: function() {
-        this._upload();
-    },
-
-    pause: function() {
-        this.is_paused = true;
-    },
-
-    resume: function() {
-        this.is_paused = false;
-        this._upload();
-    }
-};
-
-$(document).ready(function() {
-    var upload_form = $('#upload_form'),
-        file_input = $('#file_input'),
-        file_list = $('#file_list'),
-        submit_btn = $('#submit_btn'),
-        uploaders = [];
-
-    file_input.on('change', onFilesSelected);
-    upload_form.on('submit', onFormSubmit);
-
-    /**
-     * Loops through the selected files, displays their file name and size
-     * in the file list, and enables the submit button for uploading.
-     */
-    function onFilesSelected(e) {
-        var files = e.target.files,
-            file;
-
-        for (var i = 0; i < files.length; i++) {
-            file = files[i];
-            uploaders.push(new ChunkedUploader(file));
-            file_list.append('<li>' + file.name + '(' + file.size.formatBytes() + ')</li>');
-        }
-
-        file_list.show();
-        submit_btn.attr('disabled', false);
-    }
-
-    /**
-     * Loops through all known uploads and starts each upload
-     * process, preventing default form submission.
-     */
-    function onFormSubmit(e) {
-        $.each(uploaders, function(i, uploader) {
-            uploader.start();
-        });
-
-        // Prevent default form submission
-        e.preventDefault();
-    }
-});
+    }, false);
+})();
