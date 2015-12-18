@@ -29,13 +29,15 @@ var recordedVideo = document.querySelector('video#recorded');
 var recordButton = document.querySelector('button#record');
 var playButton = document.querySelector('button#play');
 var downloadButton = document.querySelector('button#download');
+var cameraOffButton = document.querySelector('button#cameraOff');
 recordButton.onclick = toggleRecording;
 playButton.onclick = play;
 downloadButton.onclick = download;
+cameraOffButton.onlick = cameraOff;
 
 // window.isSecureContext could be used for Chrome
-var isSecureOrigin = location.protocol === 'https:' ||
-location.host === 'localhost';
+var isSecureOrigin = location.protocol !== 'https:' ||
+location.host !== 'localhost';
 if (!isSecureOrigin) {
   alert('getUserMedia() must be run from a secure origin: HTTPS or localhost.' +
     '\n\nChanging protocol to HTTPS');
